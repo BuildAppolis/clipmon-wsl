@@ -2,7 +2,7 @@
 
 **A powerful clipboard monitoring system for WSL with automatic screenshot capture, GIF support, and smart path management**
 
-[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/buildappolis/clipmon-wsl)
+[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/BuildAppolis/clipmon-wsl)
 [![WSL](https://img.shields.io/badge/WSL-Ubuntu-orange.svg)](https://docs.microsoft.com/en-us/windows/wsl/)
 [![Python](https://img.shields.io/badge/python-3.8+-green.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
@@ -49,7 +49,7 @@ pip3 install Pillow
 
 1. **Clone the repository:**
 ```bash
-git clone https://github.com/buildappolis/clipmon-wsl.git ~/clipmon-wsl
+git clone https://github.com/BuildAppolis/clipmon-wsl.git ~/clipmon-wsl
 cd ~/clipmon-wsl
 ```
 
@@ -434,8 +434,8 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 ## 📞 Support
 
-- **Issues**: [GitHub Issues](https://github.com/buildappolis/clipmon-wsl/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/buildappolis/clipmon-wsl/discussions)
+- **Issues**: [GitHub Issues](https://github.com/BuildAppolis/clipmon-wsl/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/BuildAppolis/clipmon-wsl/discussions)
 - **Website**: [www.buildappolis.com](https://www.buildappolis.com)
 - **Email**: support@buildappolis.com
 
