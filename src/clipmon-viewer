@@ -574,14 +574,6 @@ class CapturesViewer:
             # Update preview
             self.update_preview(file_path)
             
-            # Auto-copy path to clipboard on selection
-            try:
-                clipboard = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
-                clipboard.set_text(file_path, -1)
-                self.statusbar.push(self.status_context, f"Path copied: {capture_id}")
-            except:
-                pass
-            
             # Show/hide GIF play button based on file type
             if capture_type == "GIF":
                 self.btn_play_gif.show()
