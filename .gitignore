@@ -8,12 +8,15 @@ env/
 venv/
 .venv
 
-# Captures
+# Captures (but allow assets/screenshots)
 *.png
 *.jpg
 *.jpeg
 *.gif
 *.bmp
+!assets/screenshots/*.png
+!assets/screenshots/*.jpg
+!assets/screenshots/*.gif
 captures/
 clipboard/
 
