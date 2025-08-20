@@ -13,6 +13,9 @@ Built with ❤️ by [BuildAppolis](https://www.buildappolis.com)
 
 ClipmonWSL is a sophisticated clipboard monitoring tool designed specifically for WSL (Windows Subsystem for Linux) environments. It automatically captures screenshots and images from your clipboard, organizes them by project, and provides both GUI and terminal interfaces for management.
 
+![ClipmonWSL Viewer Interface](assets/screenshots/viewer-interface.png)
+*The universal viewer showing captures from all projects with preview and management options*
+
 ### ✨ Key Features
 
 - 🖼️ **Automatic Screenshot Capture** - Captures screenshots from clipboard instantly
@@ -157,6 +160,9 @@ your-project/
 ```
 
 ## 🎨 GUI Control Panel
+
+![Control Panel Demo](assets/screenshots/control-panel-demo.gif)
+*The control panel in action - showing project switching and capture management*
 
 The control panel provides an intuitive interface for managing captures:
 
