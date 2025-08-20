@@ -1,0 +1,885 @@
+#!/usr/bin/env python3
+"""
+ClipmonWSL - All Captures Viewer
+A comprehensive 8-bit themed GUI for viewing captures from all projects
+by BuildAppolis (www.buildappolis.com)
+"""
+
+import gi
+gi.require_version('Gtk', '3.0')
+gi.require_version('GdkPixbuf', '2.0')
+
+from gi.repository import Gtk, GLib, Gdk, GdkPixbuf, Pango
+import os
+import subprocess
+from pathlib import Path
+from datetime import datetime
+import json
+import shutil
+
+class CapturesViewer:
+    def __init__(self):
+        # Base paths
+        self.base_dir = Path.home() / '.claude' / 'clipboard'
+        self.projects_dir = Path.home() / 'coding'
+        
+        # Create main window
+        self.window = Gtk.Window()
+        self.window.set_title("ClipmonWSL - Captures Viewer")
+        self.window.set_default_size(900, 600)
+        self.window.connect("destroy", Gtk.main_quit)
+        
+        # Apply dark theme
+        self.apply_theme()
+        
+        # Data storage
+        self.all_captures = []
+        self.current_project = "All Projects"
+        
+        # Build UI
+        self.build_ui()
+        
+        # Load captures from all projects
+        self.scan_all_projects()
+        
+        # Show window
+        self.window.show_all()
+    
+    def apply_theme(self):
+        """Apply 8-bit dark theme"""
+        css_provider = Gtk.CssProvider()
+        css = b"""
+        window {
+            background-color: #1a1a2e;
+        }
+        
+        headerbar, .header-bar {
+            background: linear-gradient(90deg, #2d2d44 0%, #1a1a2e 100%);
+            border-bottom: 2px solid #7b68ee;
+        }
+        
+        button {
+            background: linear-gradient(180deg, #2d2d44 0%, #16213e 100%);
+            color: #e8e8f0;
+            border: 2px solid #7b68ee;
+            border-radius: 0px;
+            padding: 8px 16px;
+            font-family: monospace;
+            font-weight: bold;
+        }
+        
+        button:hover {
+            background: linear-gradient(180deg, #7b68ee 0%, #9d4edd 100%);
+            border-color: #00d9ff;
+        }
+        
+        frame {
+            border: 2px solid #2d2d44;
+            border-radius: 0px;
+            background-color: #16213e;
+        }
+        
+        treeview {
+            background-color: #16213e;
+            color: #e8e8f0;
+            font-family: monospace;
+        }
+        
+        treeview:selected {
+            background-color: #7b68ee;
+        }
+        
+        entry {
+            background-color: #16213e;
+            color: #e8e8f0;
+            border: 2px solid #2d2d44;
+            border-radius: 0px;
+            font-family: monospace;
+        }
+        
+        entry:focus {
+            border-color: #7b68ee;
+        }
+        
+        label {
+            color: #e8e8f0;
+        }
+        
+        statusbar {
+            background-color: #16213e;
+            color: #5c5c8a;
+            border-top: 2px solid #2d2d44;
+            font-family: monospace;
+        }
+        """
+        css_provider.load_from_data(css)
+        
+        screen = Gdk.Screen.get_default()
+        style_context = Gtk.StyleContext()
+        style_context.add_provider_for_screen(
+            screen,
+            css_provider,
+            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+        )
+    
+    def build_ui(self):
+        """Build the main UI"""
+        # Main vertical box
+        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        
+        # Header bar
+        header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        header_box.set_margin_start(10)
+        header_box.set_margin_end(10)
+        header_box.set_margin_top(10)
+        header_box.set_margin_bottom(10)
+        
+        # Logo and Title
+        title_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        
+        # Main title with 8-bit style
+        title_label = Gtk.Label()
+        title_label.set_markup("<span foreground='#00d9ff' font='Courier New Bold 16'>ClipmonWSL</span>")
+        title_box.pack_start(title_label, False, False, 0)
+        
+        # Subtitle
+        subtitle_label = Gtk.Label()
+        subtitle_label.set_markup("<span foreground='#7b68ee' font='Courier New 10'>Captures Viewer</span>")
+        title_box.pack_start(subtitle_label, False, False, 0)
+        
+        header_box.pack_start(title_box, False, False, 0)
+        
+        # Project filter dropdown
+        self.project_combo = Gtk.ComboBoxText()
+        self.project_combo.append("all", "All Projects")
+        self.project_combo.set_active_id("all")
+        self.project_combo.connect("changed", self.on_project_filter_changed)
+        header_box.pack_start(self.project_combo, False, False, 20)
+        
+        # Stats label
+        self.stats_label = Gtk.Label()
+        header_box.pack_end(self.stats_label, False, False, 0)
+        
+        # Refresh button
+        btn_refresh = Gtk.Button(label="Refresh")
+        btn_refresh.connect("clicked", self.on_refresh_clicked)
+        header_box.pack_end(btn_refresh, False, False, 0)
+        
+        vbox.pack_start(header_box, False, False, 0)
+        
+        # Separator
+        vbox.pack_start(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL), False, False, 0)
+        
+        # Main content area - Paned container
+        paned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
+        paned.set_position(700)
+        
+        # Left side - Captures list
+        left_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
+        left_box.set_margin_start(10)
+        left_box.set_margin_end(5)
+        left_box.set_margin_top(10)
+        left_box.set_margin_bottom(10)
+        
+        # Search box
+        search_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
+        search_label = Gtk.Label(label="Search:")
+        self.search_entry = Gtk.Entry()
+        self.search_entry.set_placeholder_text("Filter captures...")
+        self.search_entry.connect("changed", self.on_search_changed)
+        search_box.pack_start(search_label, False, False, 0)
+        search_box.pack_start(self.search_entry, True, True, 0)
+        left_box.pack_start(search_box, False, False, 0)
+        
+        # Scrolled window for list
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        
+        # Create tree view for captures
+        self.create_captures_list()
+        scrolled.add(self.captures_tree)
+        left_box.pack_start(scrolled, True, True, 0)
+        
+        # Action buttons
+        action_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
+        
+        btn_view = Gtk.Button(label="View")
+        btn_view.connect("clicked", self.on_view_clicked)
+        action_box.pack_start(btn_view, True, True, 0)
+        
+        btn_copy_path = Gtk.Button(label="Copy Path")
+        btn_copy_path.connect("clicked", self.on_copy_path_clicked)
+        action_box.pack_start(btn_copy_path, True, True, 0)
+        
+        btn_open_folder = Gtk.Button(label="Open Folder")
+        btn_open_folder.connect("clicked", self.on_open_folder_clicked)
+        action_box.pack_start(btn_open_folder, True, True, 0)
+        
+        btn_delete = Gtk.Button(label="Delete")
+        btn_delete.connect("clicked", self.on_delete_clicked)
+        action_box.pack_start(btn_delete, True, True, 0)
+        
+        left_box.pack_start(action_box, False, False, 0)
+        
+        # Additional action for GIFs
+        self.btn_play_gif = Gtk.Button(label="▶ Play GIF in Browser")
+        self.btn_play_gif.connect("clicked", self.on_play_in_browser_clicked)
+        self.btn_play_gif.set_no_show_all(True)
+        left_box.pack_start(self.btn_play_gif, False, False, 0)
+        
+        paned.pack1(left_box, True, False)
+        
+        # Right side - Preview and details
+        right_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        right_box.set_margin_start(5)
+        right_box.set_margin_end(10)
+        right_box.set_margin_top(10)
+        right_box.set_margin_bottom(10)
+        
+        # Preview frame with controls
+        preview_frame = Gtk.Frame(label="Preview")
+        preview_vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
+        
+        # Preview scrolled window
+        preview_scrolled = Gtk.ScrolledWindow()
+        preview_scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        preview_scrolled.set_min_content_height(300)
+        
+        self.preview_image = Gtk.Image()
+        preview_scrolled.add(self.preview_image)
+        preview_vbox.pack_start(preview_scrolled, True, True, 0)
+        
+        # GIF control buttons (initially hidden)
+        self.gif_controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
+        self.gif_controls.set_margin_start(10)
+        self.gif_controls.set_margin_end(10)
+        self.gif_controls.set_margin_bottom(10)
+        self.gif_controls.set_no_show_all(True)
+        
+        btn_restart_gif = Gtk.Button(label="⟲ Restart")
+        btn_restart_gif.connect("clicked", self.on_restart_gif_clicked)
+        self.gif_controls.pack_start(btn_restart_gif, True, True, 0)
+        
+        btn_open_external = Gtk.Button(label="↗ Open External")
+        btn_open_external.connect("clicked", self.on_view_clicked)
+        self.gif_controls.pack_start(btn_open_external, True, True, 0)
+        
+        preview_vbox.pack_start(self.gif_controls, False, False, 0)
+        preview_frame.add(preview_vbox)
+        right_box.pack_start(preview_frame, True, True, 0)
+        
+        # Store animation reference
+        self.current_animation = None
+        self.current_preview_path = None
+        
+        # Details frame
+        details_frame = Gtk.Frame(label="Details")
+        details_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
+        details_box.set_margin_start(10)
+        details_box.set_margin_end(10)
+        details_box.set_margin_top(10)
+        details_box.set_margin_bottom(10)
+        
+        self.details_label = Gtk.Label()
+        self.details_label.set_line_wrap(True)
+        self.details_label.set_selectable(True)
+        self.details_label.set_halign(Gtk.Align.START)
+        details_box.pack_start(self.details_label, False, False, 0)
+        
+        details_frame.add(details_box)
+        right_box.pack_start(details_frame, False, False, 0)
+        
+        paned.pack2(right_box, False, True)
+        
+        vbox.pack_start(paned, True, True, 0)
+        
+        # Status bar with branding
+        statusbar_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+        
+        self.statusbar = Gtk.Statusbar()
+        self.status_context = self.statusbar.get_context_id("status")
+        statusbar_box.pack_start(self.statusbar, True, True, 0)
+        
+        # BuildAppolis branding
+        branding_label = Gtk.Label()
+        branding_label.set_markup("<span foreground='#5c5c8a' font='Courier New 9'>by BuildAppolis | www.buildappolis.com</span>")
+        branding_label.set_margin_end(10)
+        statusbar_box.pack_end(branding_label, False, False, 0)
+        
+        vbox.pack_start(statusbar_box, False, False, 0)
+        
+        self.window.add(vbox)
+    
+    def create_captures_list(self):
+        """Create the tree view for captures"""
+        # Create list store: ID, Type, Project, Time, Size, Path, Timestamp
+        self.captures_store = Gtk.ListStore(str, str, str, str, str, str, float)
+        
+        # Create filtered/sorted model
+        self.filter_model = self.captures_store.filter_new()
+        self.filter_model.set_visible_func(self.filter_captures)
+        
+        self.sort_model = Gtk.TreeModelSort(model=self.filter_model)
+        
+        # Create tree view
+        self.captures_tree = Gtk.TreeView(model=self.sort_model)
+        self.captures_tree.connect("cursor-changed", self.on_capture_selected)
+        self.captures_tree.connect("row-activated", self.on_capture_activated)
+        
+        # ID column
+        renderer = Gtk.CellRendererText()
+        column = Gtk.TreeViewColumn("ID", renderer, text=0)
+        column.set_sort_column_id(0)
+        column.set_resizable(True)
+        self.captures_tree.append_column(column)
+        
+        # Type column
+        renderer = Gtk.CellRendererText()
+        column = Gtk.TreeViewColumn("Type", renderer, text=1)
+        column.set_sort_column_id(1)
+        column.set_resizable(True)
+        self.captures_tree.append_column(column)
+        
+        # Project column
+        renderer = Gtk.CellRendererText()
+        column = Gtk.TreeViewColumn("Project", renderer, text=2)
+        column.set_sort_column_id(2)
+        column.set_resizable(True)
+        self.captures_tree.append_column(column)
+        
+        # Time column
+        renderer = Gtk.CellRendererText()
+        column = Gtk.TreeViewColumn("Time", renderer, text=3)
+        column.set_sort_column_id(6)  # Sort by timestamp
+        column.set_resizable(True)
+        self.captures_tree.append_column(column)
+        
+        # Size column
+        renderer = Gtk.CellRendererText()
+        column = Gtk.TreeViewColumn("Size", renderer, text=4)
+        column.set_sort_column_id(4)
+        column.set_resizable(True)
+        self.captures_tree.append_column(column)
+        
+        # Enable search
+        self.captures_tree.set_search_column(0)
+        
+        # Sort by time descending by default
+        self.sort_model.set_sort_column_id(6, Gtk.SortType.DESCENDING)
+    
+    def scan_all_projects(self):
+        """Scan all projects for captures"""
+        self.all_captures = []
+        self.captures_store.clear()
+        projects = set()
+        
+        # Scan global captures
+        global_captures = self.scan_directory(self.base_dir, "Global")
+        self.all_captures.extend(global_captures)
+        if global_captures:
+            projects.add("Global")
+        
+        # Scan each project directory
+        if self.projects_dir.exists():
+            for project_path in self.projects_dir.iterdir():
+                if project_path.is_dir():
+                    # Check for .claude/captures directory
+                    captures_dir = project_path / '.claude' / 'captures'
+                    if captures_dir.exists():
+                        project_name = project_path.name
+                        project_captures = self.scan_directory(captures_dir, project_name)
+                        if project_captures:
+                            self.all_captures.extend(project_captures)
+                            projects.add(project_name)
+        
+        # Update project filter dropdown
+        self.project_combo.remove_all()
+        self.project_combo.append("all", "All Projects")
+        for project in sorted(projects):
+            self.project_combo.append(project.lower(), project)
+        self.project_combo.set_active_id("all")
+        
+        # Populate list
+        for capture in self.all_captures:
+            self.captures_store.append([
+                capture['id'],
+                capture['type'],
+                capture['project'],
+                capture['time_str'],
+                capture['size_str'],
+                capture['path'],
+                capture['timestamp']
+            ])
+        
+        # Update stats
+        self.update_stats()
+        self.statusbar.push(self.status_context, f"Loaded {len(self.all_captures)} captures from {len(projects)} projects")
+    
+    def scan_directory(self, directory, project_name):
+        """Scan a directory for captures"""
+        captures = []
+        
+        # Look for references file
+        refs_file = directory / 'references.txt'
+        if refs_file.exists():
+            try:
+                with open(refs_file, 'r') as f:
+                    for line in f:
+                        if '|' in line:
+                            parts = line.strip().split('|')
+                            if len(parts) >= 3:
+                                timestamp = float(parts[0])
+                                file_path = parts[1].strip()
+                                capture_id = parts[2].strip()
+                                
+                                # Check if file exists
+                                if Path(file_path).exists():
+                                    file_size = Path(file_path).stat().st_size
+                                    size_str = self.format_size(file_size)
+                                    
+                                    # Determine type
+                                    file_type = "GIF" if '.gif' in file_path.lower() else "Image"
+                                    
+                                    # Format time
+                                    dt = datetime.fromtimestamp(timestamp)
+                                    time_str = dt.strftime("%Y-%m-%d %H:%M:%S")
+                                    
+                                    captures.append({
+                                        'id': capture_id,
+                                        'type': file_type,
+                                        'project': project_name,
+                                        'time_str': time_str,
+                                        'size_str': size_str,
+                                        'path': file_path,
+                                        'timestamp': timestamp,
+                                        'directory': str(directory)
+                                    })
+            except Exception as e:
+                print(f"Error reading {refs_file}: {e}")
+        
+        # Also scan for orphaned images not in references
+        for img_file in directory.glob("img_*"):
+            # Check if already in captures
+            if not any(c['path'] == str(img_file) for c in captures):
+                try:
+                    stat = img_file.stat()
+                    file_size = stat.st_size
+                    size_str = self.format_size(file_size)
+                    timestamp = stat.st_mtime
+                    
+                    # Determine type
+                    file_type = "GIF" if img_file.suffix.lower() == '.gif' else "Image"
+                    
+                    # Format time
+                    dt = datetime.fromtimestamp(timestamp)
+                    time_str = dt.strftime("%Y-%m-%d %H:%M:%S")
+                    
+                    # Generate ID from filename
+                    capture_id = img_file.stem.replace('img_', '')[:8]
+                    
+                    captures.append({
+                        'id': f"orphan_{capture_id}",
+                        'type': file_type,
+                        'project': project_name,
+                        'time_str': time_str,
+                        'size_str': size_str,
+                        'path': str(img_file),
+                        'timestamp': timestamp,
+                        'directory': str(directory)
+                    })
+                except Exception as e:
+                    print(f"Error scanning {img_file}: {e}")
+        
+        return captures
+    
+    def format_size(self, size_bytes):
+        """Format file size in human-readable format"""
+        for unit in ['B', 'KB', 'MB', 'GB']:
+            if size_bytes < 1024.0:
+                return f"{size_bytes:.1f} {unit}"
+            size_bytes /= 1024.0
+        return f"{size_bytes:.1f} TB"
+    
+    def filter_captures(self, model, iter, data):
+        """Filter captures based on search and project"""
+        # Get search text
+        search_text = self.search_entry.get_text().lower()
+        
+        # Get row data
+        capture_id = model[iter][0].lower()
+        capture_type = model[iter][1].lower()
+        project = model[iter][2]
+        
+        # Filter by project
+        if self.current_project != "All Projects" and project != self.current_project:
+            return False
+        
+        # Filter by search
+        if search_text:
+            if search_text not in capture_id and \
+               search_text not in capture_type and \
+               search_text not in project.lower():
+                return False
+        
+        return True
+    
+    def update_stats(self):
+        """Update statistics label"""
+        total = len(self.all_captures)
+        
+        # Count by type
+        images = sum(1 for c in self.all_captures if c['type'] == 'Image')
+        gifs = sum(1 for c in self.all_captures if c['type'] == 'GIF')
+        
+        # Count visible
+        visible = len(list(self.filter_model))
+        
+        if self.current_project == "All Projects":
+            self.stats_label.set_text(f"Total: {total} ({images} images, {gifs} GIFs) | Showing: {visible}")
+        else:
+            project_captures = [c for c in self.all_captures if c['project'] == self.current_project]
+            project_total = len(project_captures)
+            self.stats_label.set_text(f"Project: {project_total} | Showing: {visible}")
+    
+    def on_project_filter_changed(self, combo):
+        """Handle project filter change"""
+        active_id = combo.get_active_id()
+        if active_id == "all":
+            self.current_project = "All Projects"
+        else:
+            self.current_project = combo.get_active_text()
+        
+        self.filter_model.refilter()
+        self.update_stats()
+    
+    def on_search_changed(self, entry):
+        """Handle search text change"""
+        self.filter_model.refilter()
+        self.update_stats()
+    
+    def on_capture_selected(self, tree_view):
+        """Handle capture selection"""
+        selection = tree_view.get_selection()
+        model, iter = selection.get_selected()
+        
+        if iter:
+            # Get capture details
+            capture_id = model[iter][0]
+            capture_type = model[iter][1]
+            project = model[iter][2]
+            time_str = model[iter][3]
+            size_str = model[iter][4]
+            file_path = model[iter][5]
+            
+            # Update preview
+            self.update_preview(file_path)
+            
+            # Auto-copy path to clipboard on selection
+            try:
+                clipboard = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
+                clipboard.set_text(file_path, -1)
+                self.statusbar.push(self.status_context, f"Path copied: {capture_id}")
+            except:
+                pass
+            
+            # Show/hide GIF play button based on file type
+            if capture_type == "GIF":
+                self.btn_play_gif.show()
+            else:
+                self.btn_play_gif.hide()
+            
+            # Update details
+            details = f"<b>ID:</b> {capture_id}\n"
+            details += f"<b>Type:</b> {capture_type}\n"
+            details += f"<b>Project:</b> {project}\n"
+            details += f"<b>Captured:</b> {time_str}\n"
+            details += f"<b>Size:</b> {size_str}\n"
+            details += f"<b>Path:</b> {file_path}"
+            self.details_label.set_markup(details)
+    
+    def update_preview(self, file_path):
+        """Update preview image"""
+        self.current_preview_path = file_path
+        
+        try:
+            # Check if it's a GIF
+            is_gif = file_path.lower().endswith('.gif')
+            
+            if is_gif:
+                # Try to load as animation
+                try:
+                    animation = GdkPixbuf.PixbufAnimation.new_from_file(file_path)
+                    self.current_animation = animation
+                    
+                    if not animation.is_static_image():
+                        # It's an animated GIF - show it
+                        self.preview_image.set_from_animation(animation)
+                        self.gif_controls.show_all()  # Show GIF controls
+                    else:
+                        # Static GIF
+                        self.load_static_preview(file_path)
+                        self.gif_controls.hide()
+                except Exception as e:
+                    # Fallback to static preview
+                    print(f"Error loading GIF animation: {e}")
+                    self.load_static_preview(file_path)
+                    self.gif_controls.show_all()  # Show controls as we can still open externally
+            else:
+                # Regular image
+                self.load_static_preview(file_path)
+                self.gif_controls.hide()
+                self.current_animation = None
+                
+        except Exception as e:
+            self.preview_image.set_from_icon_name("image-missing", Gtk.IconSize.DIALOG)
+            self.gif_controls.hide()
+            self.current_animation = None
+    
+    def load_static_preview(self, file_path):
+        """Load a static preview of an image"""
+        # Load and scale image
+        pixbuf = GdkPixbuf.Pixbuf.new_from_file(file_path)
+        
+        # Scale to fit preview area (max 400x400)
+        width = pixbuf.get_width()
+        height = pixbuf.get_height()
+        max_size = 400
+        
+        if width > max_size or height > max_size:
+            scale = min(max_size / width, max_size / height)
+            new_width = int(width * scale)
+            new_height = int(height * scale)
+            pixbuf = pixbuf.scale_simple(new_width, new_height, GdkPixbuf.InterpType.BILINEAR)
+        
+        self.preview_image.set_from_pixbuf(pixbuf)
+    
+    def on_restart_gif_clicked(self, button):
+        """Restart GIF animation"""
+        if self.current_animation and self.current_preview_path:
+            # Reload the animation to restart it
+            try:
+                animation = GdkPixbuf.PixbufAnimation.new_from_file(self.current_preview_path)
+                self.preview_image.set_from_animation(animation)
+                self.current_animation = animation
+            except:
+                pass
+    
+    def on_capture_activated(self, tree_view, path, column):
+        """Handle double-click on capture"""
+        self.on_view_clicked(None)
+    
+    def get_selected_capture(self):
+        """Get currently selected capture"""
+        selection = self.captures_tree.get_selection()
+        model, iter = selection.get_selected()
+        
+        if iter:
+            file_path = model[iter][5]
+            project = model[iter][2]
+            
+            # Find the full capture data
+            for capture in self.all_captures:
+                if capture['path'] == file_path:
+                    return capture
+        return None
+    
+    def on_view_clicked(self, button):
+        """View selected capture"""
+        capture = self.get_selected_capture()
+        if capture:
+            # Convert WSL path to Windows path and open
+            try:
+                result = subprocess.run(
+                    ['wslpath', '-w', capture['path']],
+                    capture_output=True,
+                    text=True
+                )
+                if result.returncode == 0:
+                    win_path = result.stdout.strip()
+                    # Use cmd to start the file with default app
+                    subprocess.run(['cmd.exe', '/c', 'start', '""', win_path], shell=False)
+                    self.statusbar.push(self.status_context, f"Opened {capture['id']}")
+                else:
+                    self.statusbar.push(self.status_context, f"Error opening {capture['id']}")
+            except Exception as e:
+                self.statusbar.push(self.status_context, f"Error: {e}")
+    
+    def on_copy_path_clicked(self, button):
+        """Copy capture path to clipboard"""
+        capture = self.get_selected_capture()
+        if capture:
+            # Copy to clipboard
+            clipboard = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
+            clipboard.set_text(capture['path'], -1)
+            
+            self.statusbar.push(self.status_context, f"Copied path for {capture['id']}")
+    
+    def on_open_folder_clicked(self, button):
+        """Open capture folder"""
+        capture = self.get_selected_capture()
+        if capture:
+            directory = capture['directory']
+            
+            # Convert WSL path to Windows path and open in Explorer
+            try:
+                result = subprocess.run(
+                    ['wslpath', '-w', directory],
+                    capture_output=True,
+                    text=True
+                )
+                if result.returncode == 0:
+                    win_path = result.stdout.strip()
+                    subprocess.run(['explorer.exe', win_path])
+                    self.statusbar.push(self.status_context, f"Opened folder for {capture['project']}")
+                else:
+                    self.statusbar.push(self.status_context, "Error opening folder")
+            except Exception as e:
+                self.statusbar.push(self.status_context, f"Error: {e}")
+    
+    def on_delete_clicked(self, button):
+        """Delete selected capture"""
+        capture = self.get_selected_capture()
+        if capture:
+            # Confirm deletion
+            dialog = Gtk.MessageDialog(
+                transient_for=self.window,
+                flags=0,
+                message_type=Gtk.MessageType.QUESTION,
+                buttons=Gtk.ButtonsType.YES_NO,
+                text=f"Delete capture {capture['id']}?",
+            )
+            dialog.format_secondary_text(
+                f"This will permanently delete the file:\n{capture['path']}"
+            )
+            response = dialog.run()
+            dialog.destroy()
+            
+            if response == Gtk.ResponseType.YES:
+                try:
+                    # Delete the file
+                    Path(capture['path']).unlink()
+                    
+                    # Remove from references file if not orphaned
+                    if not capture['id'].startswith('orphan_'):
+                        self.remove_from_references(capture)
+                    
+                    # Refresh list
+                    self.scan_all_projects()
+                    
+                    self.statusbar.push(self.status_context, f"Deleted {capture['id']}")
+                except Exception as e:
+                    self.statusbar.push(self.status_context, f"Error deleting: {e}")
+    
+    def remove_from_references(self, capture):
+        """Remove capture from references file"""
+        refs_file = Path(capture['directory']) / 'references.txt'
+        if refs_file.exists():
+            lines = []
+            with open(refs_file, 'r') as f:
+                for line in f:
+                    if capture['path'] not in line:
+                        lines.append(line)
+            
+            with open(refs_file, 'w') as f:
+                f.writelines(lines)
+    
+    def on_refresh_clicked(self, button):
+        """Refresh captures list"""
+        self.scan_all_projects()
+        self.statusbar.push(self.status_context, "Refreshed captures list")
+    
+    def on_play_in_browser_clicked(self, button):
+        """Open GIF in web browser for better playback"""
+        capture = self.get_selected_capture()
+        if capture and capture['type'] == 'GIF':
+            try:
+                # Convert WSL path to Windows path
+                result = subprocess.run(
+                    ['wslpath', '-w', capture['path']],
+                    capture_output=True,
+                    text=True
+                )
+                if result.returncode == 0:
+                    win_path = result.stdout.strip()
+                    # Create HTML with Windows file path
+                    import tempfile
+                    
+                    html_content = f'''
+                    <html>
+                    <head>
+                        <title>GIF Viewer - {capture['id']}</title>
+                        <style>
+                            body {{
+                                margin: 0;
+                                padding: 20px;
+                                background: #1a1a1a;
+                                display: flex;
+                                flex-direction: column;
+                                align-items: center;
+                                min-height: 100vh;
+                            }}
+                            .controls {{
+                                margin: 20px;
+                                color: white;
+                            }}
+                            button {{
+                                padding: 10px 20px;
+                                margin: 0 10px;
+                                font-size: 16px;
+                                cursor: pointer;
+                            }}
+                            img {{
+                                max-width: 90vw;
+                                max-height: 70vh;
+                                border: 2px solid #444;
+                                box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+                            }}
+                            .info {{
+                                color: #ccc;
+                                font-family: monospace;
+                                margin: 20px;
+                            }}
+                        </style>
+                    </head>
+                    <body>
+                        <div class="info">
+                            GIF: {capture['id']} | Project: {capture['project']} | Size: {capture['size_str']}
+                        </div>
+                        <img id="gif" src="file:///{win_path.replace(chr(92), '/')}" alt="GIF">
+                        <div class="controls">
+                            <button onclick="location.reload()">Restart Animation</button>
+                        </div>
+                    </body>
+                    </html>
+                    '''
+                    
+                    # Write HTML to temp file with .html extension
+                    temp_dir = Path.home() / '.claude' / 'temp'
+                    temp_dir.mkdir(exist_ok=True)
+                    html_file = temp_dir / f"gif_viewer_{capture['id']}.html"
+                    
+                    with open(html_file, 'w') as f:
+                        f.write(html_content)
+                    
+                    # Convert temp file path to Windows and open
+                    result = subprocess.run(
+                        ['wslpath', '-w', str(html_file)],
+                        capture_output=True,
+                        text=True
+                    )
+                    if result.returncode == 0:
+                        win_html_path = result.stdout.strip()
+                        # Open with default browser
+                        subprocess.run(['cmd.exe', '/c', 'start', '""', win_html_path], shell=False)
+                        self.statusbar.push(self.status_context, f"Opened {capture['id']} in browser")
+                    else:
+                        self.statusbar.push(self.status_context, "Error creating viewer")
+            except Exception as e:
+                self.statusbar.push(self.status_context, f"Error: {e}")
+
+def main():
+    app = CapturesViewer()
+    Gtk.main()
+
+if __name__ == "__main__":
+    main()

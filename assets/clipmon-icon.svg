@@ -1,0 +1,28 @@
+<!-- ClipmonWSL Icon - Simplified 8-bit clipboard icon for system tray/app icon -->
+<svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background circle (optional, can be removed for transparency) -->
+  <rect width="64" height="64" fill="#1a1a2e" rx="8"/>
+  
+  <!-- Simplified clipboard -->
+  <g id="icon">
+    <!-- Clipboard body -->
+    <rect x="14" y="10" width="36" height="48" fill="#2d2d44" stroke="#7b68ee" stroke-width="2"/>
+    
+    <!-- Clip -->
+    <rect x="24" y="6" width="16" height="8" fill="#9d4edd"/>
+    
+    <!-- Paper -->
+    <rect x="18" y="18" width="28" height="36" fill="#e8e8f0"/>
+    
+    <!-- Pixel lines -->
+    <rect x="22" y="24" width="20" height="2" fill="#7b68ee"/>
+    <rect x="22" y="30" width="16" height="2" fill="#00d9ff"/>
+    <rect x="22" y="36" width="20" height="2" fill="#7b68ee"/>
+    
+    <!-- Mini pixel checkmark -->
+    <rect x="22" y="44" width="2" height="2" fill="#00d9ff"/>
+    <rect x="24" y="46" width="2" height="2" fill="#00d9ff"/>
+    <rect x="26" y="44" width="2" height="2" fill="#00d9ff"/>
+    <rect x="28" y="42" width="2" height="2" fill="#00d9ff"/>
+  </g>
+</svg>

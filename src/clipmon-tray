@@ -1,0 +1,345 @@
+#!/usr/bin/env python3
+"""
+Clipboard Monitor System Tray Application
+Provides a GTK system tray indicator for the clipmon service
+"""
+
+import gi
+gi.require_version('Gtk', '3.0')
+gi.require_version('AppIndicator3', '0.1')
+gi.require_version('Notify', '0.7')
+
+from gi.repository import Gtk, AppIndicator3, GLib, Notify
+import os
+import subprocess
+import signal
+import sys
+from pathlib import Path
+import json
+from datetime import datetime
+import threading
+import time
+
+class ClipmonTray:
+    def __init__(self):
+        self.base_dir = Path.home() / '.claude' / 'clipboard'
+        self.pid_file = Path.home() / '.claude' / 'clipmon.pid'  # Correct PID file location
+        self.refs_file = self.base_dir / 'references.txt'
+        
+        # Initialize notification system
+        Notify.init("Clipmon")
+        
+        # Create indicator
+        self.indicator = AppIndicator3.Indicator.new(
+            "clipmon-indicator",
+            "media-record",  # Default icon
+            AppIndicator3.IndicatorCategory.APPLICATION_STATUS
+        )
+        self.indicator.set_status(AppIndicator3.IndicatorStatus.ACTIVE)
+        
+        # Set initial icon based on monitor status
+        self.update_icon()
+        
+        # Build menu
+        self.build_menu()
+        
+        # Start status checker
+        self.start_status_checker()
+        
+        # Watch for new captures
+        self.last_capture_count = self.get_capture_count()
+        self.start_capture_watcher()
+    
+    def build_menu(self):
+        """Build the tray menu"""
+        menu = Gtk.Menu()
+        
+        # Status item (non-clickable)
+        self.status_item = Gtk.MenuItem(label="⚫ Monitor Status")
+        self.status_item.set_sensitive(False)
+        menu.append(self.status_item)
+        
+        menu.append(Gtk.SeparatorMenuItem())
+        
+        # Toggle monitor
+        self.toggle_item = Gtk.MenuItem(label="Start Monitor")
+        self.toggle_item.connect("activate", self.toggle_monitor)
+        menu.append(self.toggle_item)
+        
+        # View captures
+        item_view = Gtk.MenuItem(label="View Captures")
+        item_view.connect("activate", self.view_captures)
+        menu.append(item_view)
+        
+        # Open captures folder
+        item_folder = Gtk.MenuItem(label="Open Captures Folder")
+        item_folder.connect("activate", self.open_folder)
+        menu.append(item_folder)
+        
+        menu.append(Gtk.SeparatorMenuItem())
+        
+        # Recent captures submenu
+        recent_menu = Gtk.Menu()
+        self.recent_item = Gtk.MenuItem(label="Recent Captures")
+        self.recent_item.set_submenu(recent_menu)
+        menu.append(self.recent_item)
+        self.update_recent_menu()
+        
+        menu.append(Gtk.SeparatorMenuItem())
+        
+        # Clean old captures
+        item_clean = Gtk.MenuItem(label="Clean Old Captures")
+        item_clean.connect("activate", self.clean_captures)
+        menu.append(item_clean)
+        
+        # Settings (placeholder)
+        item_settings = Gtk.MenuItem(label="Settings")
+        item_settings.set_sensitive(False)  # Disabled for now
+        menu.append(item_settings)
+        
+        menu.append(Gtk.SeparatorMenuItem())
+        
+        # Quit
+        item_quit = Gtk.MenuItem(label="Quit")
+        item_quit.connect("activate", self.quit)
+        menu.append(item_quit)
+        
+        menu.show_all()
+        self.indicator.set_menu(menu)
+        self.menu = menu
+    
+    def update_recent_menu(self):
+        """Update the recent captures submenu"""
+        if not hasattr(self, 'recent_item'):
+            return
+            
+        recent_menu = Gtk.Menu()
+        
+        # Get recent captures
+        captures = self.get_recent_captures(5)
+        
+        if captures:
+            for capture in captures:
+                label = f"#{capture['id']}: {capture['type']} - {capture['time']}"
+                item = Gtk.MenuItem(label=label)
+                item.connect("activate", lambda w, c=capture: self.copy_capture(c))
+                recent_menu.append(item)
+        else:
+            item = Gtk.MenuItem(label="No captures yet")
+            item.set_sensitive(False)
+            recent_menu.append(item)
+        
+        recent_menu.show_all()
+        self.recent_item.set_submenu(recent_menu)
+    
+    def get_recent_captures(self, limit=5):
+        """Get recent captures from references file"""
+        captures = []
+        if self.refs_file.exists():
+            try:
+                with open(self.refs_file, 'r') as f:
+                    lines = f.readlines()[-limit:]
+                    for line in reversed(lines):
+                        if '|' in line:
+                            parts = line.strip().split('|')
+                            if len(parts) >= 3:
+                                # Parse timestamp
+                                timestamp = datetime.fromtimestamp(float(parts[0]))
+                                time_str = timestamp.strftime("%H:%M")
+                                
+                                captures.append({
+                                    'id': parts[2].strip(),
+                                    'type': 'Image' if 'image' in parts[1] else 'GIF',
+                                    'time': time_str,
+                                    'path': parts[1].strip()
+                                })
+            except:
+                pass
+        return captures
+    
+    def copy_capture(self, capture):
+        """Copy capture path to clipboard"""
+        try:
+            # Use xclip to copy path
+            subprocess.run(['xclip', '-selection', 'clipboard'], 
+                         input=capture['path'].encode(), check=True)
+            self.notify(f"Copied path for {capture['type']} #{capture['id']}")
+        except:
+            self.notify("Failed to copy path", is_error=True)
+    
+    def is_monitor_running(self):
+        """Check if monitor is running"""
+        if self.pid_file.exists():
+            try:
+                pid = int(self.pid_file.read_text().strip())
+                # Check if process exists
+                os.kill(pid, 0)
+                return True
+            except (ProcessLookupError, ValueError):
+                # PID file exists but process doesn't
+                self.pid_file.unlink(missing_ok=True)
+        return False
+    
+    def update_icon(self):
+        """Update tray icon based on monitor status"""
+        if self.is_monitor_running():
+            # Green dot for running
+            self.indicator.set_icon_full("media-record", "Monitor Running")
+            self.indicator.set_label("🟢", "")
+        else:
+            # Red dot for stopped
+            self.indicator.set_icon_full("media-playback-stop", "Monitor Stopped")
+            self.indicator.set_label("🔴", "")
+    
+    def update_status(self):
+        """Update status menu item and toggle button"""
+        is_running = self.is_monitor_running()
+        
+        if is_running:
+            self.status_item.set_label("🟢 Monitor Running")
+            self.toggle_item.set_label("Stop Monitor")
+        else:
+            self.status_item.set_label("🔴 Monitor Stopped")
+            self.toggle_item.set_label("Start Monitor")
+        
+        self.update_icon()
+        self.update_recent_menu()
+    
+    def start_status_checker(self):
+        """Start background thread to check monitor status"""
+        def check_status():
+            GLib.idle_add(self.update_status)
+            return True  # Continue checking
+        
+        # Check every 2 seconds
+        GLib.timeout_add_seconds(2, check_status)
+    
+    def start_capture_watcher(self):
+        """Watch for new captures and notify"""
+        def check_captures():
+            current_count = self.get_capture_count()
+            if current_count > self.last_capture_count:
+                diff = current_count - self.last_capture_count
+                if diff == 1:
+                    self.notify(f"New clipboard capture #{current_count}")
+                else:
+                    self.notify(f"{diff} new captures (#{self.last_capture_count+1}-{current_count})")
+                self.last_capture_count = current_count
+                GLib.idle_add(self.update_recent_menu)
+            return True
+        
+        # Check every 3 seconds
+        GLib.timeout_add_seconds(3, check_captures)
+    
+    def get_capture_count(self):
+        """Get current number of captures"""
+        if self.refs_file.exists():
+            try:
+                with open(self.refs_file, 'r') as f:
+                    return len(f.readlines())
+            except:
+                pass
+        return 0
+    
+    def toggle_monitor(self, widget):
+        """Toggle monitor on/off"""
+        if self.is_monitor_running():
+            self.stop_monitor()
+        else:
+            self.start_monitor()
+    
+    def start_monitor(self):
+        """Start the clipboard monitor"""
+        try:
+            result = subprocess.run(
+                ['bash', str(Path.home() / '.claude' / 'tools' / 'clipmon-bg'), 'start'],
+                capture_output=True, text=True
+            )
+            if result.returncode == 0:
+                self.notify("Clipboard monitor started")
+                time.sleep(1)  # Give it time to start
+                self.update_status()
+            else:
+                self.notify("Failed to start monitor", is_error=True)
+        except Exception as e:
+            self.notify(f"Error: {e}", is_error=True)
+    
+    def stop_monitor(self):
+        """Stop the clipboard monitor"""
+        try:
+            result = subprocess.run(
+                ['bash', str(Path.home() / '.claude' / 'tools' / 'clipmon-bg'), 'stop'],
+                capture_output=True, text=True
+            )
+            if result.returncode == 0:
+                self.notify("Clipboard monitor stopped")
+                self.update_status()
+            else:
+                self.notify("Failed to stop monitor", is_error=True)
+        except Exception as e:
+            self.notify(f"Error: {e}", is_error=True)
+    
+    def view_captures(self, widget):
+        """View captures in terminal"""
+        subprocess.Popen(['gnome-terminal', '--', 'bash', '-c', 
+                         'clipmon refs; echo "Press any key to exit..."; read -n 1'])
+    
+    def open_folder(self, widget):
+        """Open captures folder in file manager"""
+        subprocess.Popen(['xdg-open', str(self.base_dir)])
+    
+    def clean_captures(self, widget):
+        """Clean old captures"""
+        try:
+            result = subprocess.run(
+                ['bash', str(Path.home() / '.claude' / 'tools' / 'clipmon'), 'clean'],
+                capture_output=True, text=True
+            )
+            self.notify("Old captures cleaned")
+            self.update_recent_menu()
+        except Exception as e:
+            self.notify(f"Error cleaning: {e}", is_error=True)
+    
+    def notify(self, message, is_error=False):
+        """Show desktop notification"""
+        notification = Notify.Notification.new(
+            "Clipboard Monitor",
+            message,
+            "dialog-error" if is_error else "dialog-information"
+        )
+        notification.set_timeout(3000)  # 3 seconds
+        notification.show()
+    
+    def quit(self, widget):
+        """Quit the application"""
+        # Ask if should stop monitor
+        if self.is_monitor_running():
+            dialog = Gtk.MessageDialog(
+                transient_for=None,
+                flags=0,
+                message_type=Gtk.MessageType.QUESTION,
+                buttons=Gtk.ButtonsType.YES_NO,
+                text="Stop Monitor?",
+            )
+            dialog.format_secondary_text(
+                "The clipboard monitor is still running. Stop it before quitting?"
+            )
+            response = dialog.run()
+            dialog.destroy()
+            
+            if response == Gtk.ResponseType.YES:
+                self.stop_monitor()
+        
+        Notify.uninit()
+        Gtk.main_quit()
+
+def main():
+    # Handle signals
+    signal.signal(signal.SIGINT, signal.SIG_DFL)
+    
+    # Create and run application
+    app = ClipmonTray()
+    Gtk.main()
+
+if __name__ == "__main__":
+    main()

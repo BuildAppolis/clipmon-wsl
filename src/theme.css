@@ -1,0 +1,283 @@
+/* ClipmonWSL 8-bit Dark Theme */
+/* by BuildAppolis */
+
+/* Color Palette */
+* {
+    /* Dark backgrounds */
+    -gtk-theme-bg-color: #1a1a2e;
+    -gtk-theme-base-color: #1a1a2e;
+    
+    /* Surface colors */
+    -gtk-theme-selected-bg-color: #7b68ee;
+    -gtk-theme-selected-fg-color: #e8e8f0;
+    
+    /* Text colors */
+    -gtk-theme-fg-color: #e8e8f0;
+    -gtk-theme-text-color: #e8e8f0;
+    
+    /* Accent colors */
+    -gtk-theme-accent: #00d9ff;
+    -gtk-theme-secondary: #9d4edd;
+}
+
+/* Window styling */
+window {
+    background-color: #1a1a2e;
+    color: #e8e8f0;
+    font-family: "Courier New", monospace;
+}
+
+/* Header bars */
+headerbar {
+    background: linear-gradient(90deg, #2d2d44 0%, #1a1a2e 100%);
+    color: #e8e8f0;
+    border-bottom: 2px solid #7b68ee;
+    min-height: 40px;
+}
+
+headerbar title {
+    font-weight: bold;
+    font-size: 14px;
+    color: #00d9ff;
+}
+
+/* Buttons */
+button {
+    background: linear-gradient(180deg, #2d2d44 0%, #16213e 100%);
+    color: #e8e8f0;
+    border: 2px solid #7b68ee;
+    border-radius: 0px; /* 8-bit style = no rounded corners */
+    padding: 8px 16px;
+    font-family: monospace;
+    font-weight: bold;
+    min-height: 32px;
+}
+
+button:hover {
+    background: linear-gradient(180deg, #7b68ee 0%, #9d4edd 100%);
+    border-color: #00d9ff;
+    color: white;
+}
+
+button:active {
+    background: #9d4edd;
+    border-color: #00d9ff;
+}
+
+/* Frames */
+frame {
+    border: 2px solid #2d2d44;
+    border-radius: 0px;
+    background-color: #16213e;
+    margin: 4px;
+}
+
+frame > border {
+    border: none;
+}
+
+frame > label {
+    color: #00d9ff;
+    font-weight: bold;
+    font-family: monospace;
+    background-color: #1a1a2e;
+    padding: 0 8px;
+}
+
+/* Lists and Tree Views */
+treeview {
+    background-color: #16213e;
+    color: #e8e8f0;
+    font-family: monospace;
+}
+
+treeview:selected {
+    background-color: #7b68ee;
+    color: white;
+}
+
+treeview header button {
+    background: #2d2d44;
+    color: #00d9ff;
+    border: 1px solid #1a1a2e;
+    font-weight: bold;
+}
+
+/* Entry fields */
+entry {
+    background-color: #16213e;
+    color: #e8e8f0;
+    border: 2px solid #2d2d44;
+    border-radius: 0px;
+    padding: 8px;
+    font-family: monospace;
+}
+
+entry:focus {
+    border-color: #7b68ee;
+    background-color: #1a1a2e;
+}
+
+/* Labels */
+label {
+    color: #e8e8f0;
+    font-family: monospace;
+}
+
+label.title {
+    color: #00d9ff;
+    font-size: 16px;
+    font-weight: bold;
+}
+
+/* Scrollbars */
+scrollbar {
+    background-color: #1a1a2e;
+    border: none;
+}
+
+scrollbar slider {
+    background-color: #7b68ee;
+    border: 2px solid #2d2d44;
+    min-width: 12px;
+    min-height: 12px;
+}
+
+scrollbar slider:hover {
+    background-color: #9d4edd;
+}
+
+/* Status bar */
+statusbar {
+    background-color: #16213e;
+    color: #5c5c8a;
+    border-top: 2px solid #2d2d44;
+    font-family: monospace;
+    min-height: 24px;
+}
+
+/* Combo boxes */
+combobox {
+    background-color: #16213e;
+    color: #e8e8f0;
+    border: 2px solid #2d2d44;
+    border-radius: 0px;
+}
+
+combobox button {
+    background-color: #2d2d44;
+    border: none;
+}
+
+/* Separators */
+separator {
+    background-color: #2d2d44;
+    min-height: 2px;
+    min-width: 2px;
+}
+
+/* Tooltips */
+tooltip {
+    background-color: #2d2d44;
+    color: #e8e8f0;
+    border: 2px solid #7b68ee;
+    border-radius: 0px;
+    padding: 8px;
+}
+
+/* 8-bit style checkboxes */
+checkbutton check {
+    background-color: #16213e;
+    border: 2px solid #7b68ee;
+    border-radius: 0px;
+    min-width: 16px;
+    min-height: 16px;
+}
+
+checkbutton check:checked {
+    background-color: #00d9ff;
+}
+
+/* Menu styling */
+menu {
+    background-color: #1a1a2e;
+    border: 2px solid #7b68ee;
+    padding: 4px;
+}
+
+menuitem {
+    color: #e8e8f0;
+    padding: 8px;
+    font-family: monospace;
+}
+
+menuitem:hover {
+    background-color: #7b68ee;
+    color: white;
+}
+
+/* Dialogs - More comprehensive styling */
+messagedialog,
+dialog,
+.dialog,
+.message-dialog {
+    background-color: #1a1a2e !important;
+    color: #e8e8f0 !important;
+}
+
+messagedialog *,
+dialog * {
+    background-color: transparent;
+    color: #e8e8f0;
+}
+
+messagedialog .dialog-vbox,
+messagedialog box,
+dialog box {
+    background-color: #1a1a2e !important;
+}
+
+messagedialog .dialog-action-area,
+dialog .dialog-action-area {
+    background-color: #16213e !important;
+    border-top: 2px solid #2d2d44;
+    padding: 8px;
+}
+
+messagedialog button,
+dialog button {
+    background: linear-gradient(180deg, #2d2d44 0%, #16213e 100%) !important;
+    color: #e8e8f0 !important;
+    border: 2px solid #7b68ee !important;
+    margin: 4px;
+    padding: 8px 16px;
+    min-height: 36px;
+}
+
+messagedialog button:hover,
+dialog button:hover {
+    background: linear-gradient(180deg, #7b68ee 0%, #9d4edd 100%) !important;
+    color: white !important;
+}
+
+/* Dialog labels */
+messagedialog label,
+dialog label {
+    color: #e8e8f0 !important;
+    background: transparent !important;
+}
+
+/* Special 8-bit effects */
+.pixel-border {
+    border: 2px solid #7b68ee;
+    box-shadow: 
+        2px 0 0 0 #16213e,
+        0 2px 0 0 #16213e,
+        2px 2px 0 0 #16213e,
+        inset -2px 0 0 0 #9d4edd,
+        inset 0 -2px 0 0 #9d4edd;
+}
+
+.glow-effect {
+    text-shadow: 0 0 10px #00d9ff;
+}

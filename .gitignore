@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv
+
+# Captures
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.bmp
+captures/
+clipboard/
+
+# Temp files
+*.tmp
+*.temp
+temp/
+.claude/temp/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+monitor.pid
+clipmon.pid
+
+# Build
+dist/
+build/
+*.egg-info/
+
+# User specific
+.env
+config.local.json

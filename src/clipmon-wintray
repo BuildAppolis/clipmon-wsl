@@ -1,0 +1,67 @@
+#!/bin/bash
+
+# Clipboard Monitor Windows System Tray Launcher
+# Runs the pystray app using Windows Python
+
+# Colors for output
+CYAN='\033[0;36m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+NC='\033[0m'
+
+# Path to the Python script
+SCRIPT_PATH="/home/cory-ubuntu/.claude/tools/clipmon-systray.py"
+WIN_SCRIPT=$(wslpath -w "$SCRIPT_PATH")
+
+# Check if Windows Python has required packages
+check_dependencies() {
+    echo -e "${CYAN}Checking Windows Python dependencies...${NC}"
+    
+    # Check for pystray
+    if ! python3.exe -c "import pystray" 2>/dev/null; then
+        echo -e "${YELLOW}Installing pystray...${NC}"
+        python3.exe -m pip install pystray --quiet
+    fi
+    
+    # Check for Pillow
+    if ! python3.exe -c "import PIL" 2>/dev/null; then
+        echo -e "${YELLOW}Installing Pillow...${NC}"
+        python3.exe -m pip install Pillow --quiet
+    fi
+    
+    echo -e "${GREEN}✓ Dependencies ready${NC}"
+}
+
+case "${1:-start}" in
+    start)
+        check_dependencies
+        echo -e "${CYAN}Starting Clipboard Monitor System Tray...${NC}"
+        echo -e "${DIM}The icon will appear in your Windows system tray${NC}"
+        echo ""
+        
+        # Run in background using Windows Python
+        python3.exe "$WIN_SCRIPT" &
+        
+        echo -e "${GREEN}✓ System tray started${NC}"
+        echo -e "Right-click the tray icon for options"
+        ;;
+        
+    install)
+        # Just install dependencies
+        check_dependencies
+        ;;
+        
+    help|--help|-h)
+        echo -e "${CYAN}Clipboard Monitor Windows Tray${NC}"
+        echo ""
+        echo "Usage:"
+        echo "  clipmon-wintray        - Start the Windows system tray"
+        echo "  clipmon-wintray install - Install Python dependencies"
+        echo "  clipmon-wintray help   - Show this help"
+        ;;
+        
+    *)
+        exec "$0" start
+        ;;
+esac

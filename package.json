@@ -1,0 +1,61 @@
+{
+  "name": "clipmon-wsl",
+  "version": "2.0.0",
+  "description": "Unified clipboard monitor for Windows Subsystem for Linux with smart UI modes",
+  "main": "src/clipmon",
+  "scripts": {
+    "install": "./install.sh",
+    "start": "clipmon",
+    "bg": "clipmon bg",
+    "gui": "clipmon gui",
+    "tray": "clipmon tray",
+    "viewer": "clipmon viewer",
+    "config": "clipmon config",
+    "test": "clipmon status"
+  },
+  "bin": {
+    "clipmon": "./src/clipmon"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/buildappolis/clipmon-wsl.git"
+  },
+  "keywords": [
+    "clipboard",
+    "monitor",
+    "wsl",
+    "windows",
+    "linux",
+    "screenshot",
+    "capture",
+    "8-bit",
+    "retro",
+    "unified",
+    "smart",
+    "buildappolis"
+  ],
+  "author": "BuildAppolis <dev@buildappolis.com> (https://www.buildappolis.com)",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/buildappolis/clipmon-wsl/issues"
+  },
+  "homepage": "https://github.com/buildappolis/clipmon-wsl#readme",
+  "engines": {
+    "python": ">=3.8.0"
+  },
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "dependencies": {},
+  "devDependencies": {},
+  "files": [
+    "src/",
+    "assets/",
+    "install.sh",
+    "README.md",
+    "LICENSE"
+  ]
+}

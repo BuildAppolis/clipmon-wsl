@@ -1,0 +1,73 @@
+<!-- ClipmonWSL Text Logo - 8-bit style text with BuildAppolis branding -->
+<svg width="400" height="120" viewBox="0 0 400 120" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- 8-bit gradient effect -->
+    <linearGradient id="textGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#00d9ff;stop-opacity:1" />
+      <stop offset="50%" style="stop-color:#7b68ee;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#9d4edd;stop-opacity:1" />
+    </linearGradient>
+    
+    <!-- Pixel pattern -->
+    <pattern id="pixelPattern" x="0" y="0" width="4" height="4" patternUnits="userSpaceOnUse">
+      <rect x="0" y="0" width="2" height="2" fill="#7b68ee" opacity="0.3"/>
+      <rect x="2" y="2" width="2" height="2" fill="#9d4edd" opacity="0.3"/>
+    </pattern>
+  </defs>
+  
+  <!-- Background -->
+  <rect width="400" height="120" fill="#1a1a2e"/>
+  
+  <!-- Pixel pattern overlay -->
+  <rect width="400" height="120" fill="url(#pixelPattern)"/>
+  
+  <!-- Main Title - ClipmonWSL -->
+  <g id="main-text">
+    <!-- Shadow -->
+    <text x="202" y="52" 
+          font-family="Courier New, monospace" 
+          font-size="36" 
+          font-weight="bold"
+          fill="#0a0a14"
+          text-anchor="middle">ClipmonWSL</text>
+    
+    <!-- Main text -->
+    <text x="200" y="50" 
+          font-family="Courier New, monospace" 
+          font-size="36" 
+          font-weight="bold"
+          fill="url(#textGradient)"
+          text-anchor="middle">ClipmonWSL</text>
+  </g>
+  
+  <!-- Tagline -->
+  <text x="200" y="75" 
+        font-family="Courier New, monospace" 
+        font-size="14" 
+        fill="#e8e8f0"
+        text-anchor="middle">Clipboard Monitor for WSL</text>
+  
+  <!-- BuildAppolis credit -->
+  <g id="credit">
+    <text x="200" y="105" 
+          font-family="Courier New, monospace" 
+          font-size="10" 
+          fill="#5c5c8a"
+          text-anchor="middle">by BuildAppolis</text>
+    
+    <text x="200" y="115" 
+          font-family="Courier New, monospace" 
+          font-size="8" 
+          fill="#5c5c8a"
+          text-anchor="middle">www.buildappolis.com</text>
+  </g>
+  
+  <!-- Decorative pixels -->
+  <rect x="20" y="45" width="4" height="4" fill="#00d9ff"/>
+  <rect x="28" y="45" width="4" height="4" fill="#7b68ee"/>
+  <rect x="36" y="45" width="4" height="4" fill="#9d4edd"/>
+  
+  <rect x="360" y="45" width="4" height="4" fill="#9d4edd"/>
+  <rect x="368" y="45" width="4" height="4" fill="#7b68ee"/>
+  <rect x="376" y="45" width="4" height="4" fill="#00d9ff"/>
+</svg>

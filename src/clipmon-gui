@@ -1,0 +1,967 @@
+#!/usr/bin/env python3
+"""
+ClipmonWSL Control Panel - 8-bit Themed GUI
+Floating control panel for clipboard monitoring
+by BuildAppolis (www.buildappolis.com)
+"""
+
+import gi
+gi.require_version('Gtk', '3.0')
+
+from gi.repository import Gtk, GLib, Gdk, Pango
+import os
+import subprocess
+import signal
+import sys
+import json
+from pathlib import Path
+from datetime import datetime
+
+class ClipmonGUI:
+    def __init__(self):
+        self.base_dir = Path.home() / '.claude' / 'clipboard'
+        self.pid_file = Path.home() / '.claude' / 'clipmon.pid'  # Correct PID file location
+        
+        # Check for project-specific captures directory
+        cwd = Path.cwd()
+        project_captures = cwd / '.claude' / 'captures'
+        if project_captures.exists():
+            self.captures_dir = project_captures
+            # Check for JSON or text references
+            self.refs_json = project_captures / 'references.json'
+            self.refs_file = project_captures / 'references.txt'
+        else:
+            self.captures_dir = self.base_dir
+            self.refs_json = self.base_dir / 'references.json'
+            self.refs_file = self.base_dir / 'references.txt'
+        
+        # Track notification messages in statusbar instead
+        self.last_message = ""
+        
+        # Create main window
+        self.window = Gtk.Window()
+        self.window.set_title("ClipmonWSL Control Panel")
+        self.window.set_default_size(280, 360)  # More compact
+        self.window.set_resizable(True)
+        
+        # Apply 8-bit theme
+        self.apply_theme()
+        
+        # Keep window on top and show in taskbar
+        self.window.set_keep_above(True)
+        self.window.set_skip_taskbar_hint(False)
+        
+        # Set window position (top-right corner)
+        try:
+            display = Gdk.Display.get_default()
+            monitor = display.get_primary_monitor()
+            if monitor:
+                geometry = monitor.get_geometry()
+                self.window.move(geometry.x + geometry.width - 320, geometry.y + 20)
+            else:
+                # Fallback if no primary monitor
+                self.window.move(100, 100)
+        except:
+            # Fallback to default position
+            self.window.move(100, 100)
+        
+        # Connect destroy signal
+        self.window.connect("destroy", self.quit)
+        
+        # Build UI
+        self.build_ui()
+        
+        # Add CSS classes for theming
+        self.window.get_style_context().add_class('clipmon-window')
+        
+        # Initialize capture count
+        self.last_capture_count = self.get_capture_count()
+        
+        # Start ONE combined watcher instead of two separate ones
+        self.start_combined_watcher()
+        
+        # Show window
+        self.window.show_all()
+    
+    def apply_theme(self):
+        """Apply 8-bit dark theme"""
+        css_provider = Gtk.CssProvider()
+        css = b"""
+        .clipmon-window {
+            background-color: #1a1a2e;
+        }
+        
+        window {
+            background-color: #1a1a2e;
+        }
+        
+        headerbar {
+            background: #2d2d44;
+            color: white;
+        }
+        
+        headerbar .title {
+            color: white;
+        }
+        
+        button {
+            background: linear-gradient(180deg, #2d2d44 0%, #16213e 100%);
+            color: #e8e8f0;
+            border: 2px solid #7b68ee;
+            border-radius: 0px;
+            padding: 4px 8px;
+            font-family: "Courier New", monospace;
+            font-weight: bold;
+            min-height: 28px;
+        }
+        
+        button:hover {
+            background: linear-gradient(180deg, #7b68ee 0%, #9d4edd 100%);
+            border-color: #00d9ff;
+            color: white;
+        }
+        
+        button:active {
+            background: #9d4edd;
+        }
+        
+        frame {
+            border: 2px solid #2d2d44;
+            border-radius: 0px;
+            background-color: #16213e;
+            margin: 2px;
+        }
+        
+        frame > label {
+            color: #00d9ff;
+            font-weight: bold;
+            font-family: monospace;
+        }
+        
+        list, listbox {
+            background-color: #16213e;
+            color: #e8e8f0;
+            font-family: monospace;
+        }
+        
+        listboxrow:selected {
+            background-color: #7b68ee;
+            color: white;
+        }
+        
+        label {
+            color: #e8e8f0;
+            font-family: monospace;
+        }
+        
+        .title-label {
+            color: #00d9ff;
+            font-size: 18px;
+            font-weight: bold;
+        }
+        
+        .subtitle-label {
+            color: #7b68ee;
+            font-size: 12px;
+        }
+        
+        .status-running {
+            color: #00d9ff;
+            font-weight: bold;
+        }
+        
+        .status-stopped {
+            color: #9d4edd;
+            font-weight: bold;
+        }
+        
+        separator {
+            background-color: #2d2d44;
+            min-height: 2px;
+        }
+        """
+        css_provider.load_from_data(css)
+        
+        screen = Gdk.Screen.get_default()
+        style_context = Gtk.StyleContext()
+        style_context.add_provider_for_screen(
+            screen,
+            css_provider,
+            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+        )
+    
+    def build_ui(self):
+        """Build the main UI"""
+        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        vbox.set_margin_start(10)
+        vbox.set_margin_end(10)
+        vbox.set_margin_top(10)
+        vbox.set_margin_bottom(10)
+        
+        # Header with branding
+        header_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        
+        # ClipmonWSL title
+        title_label = Gtk.Label()
+        title_label.set_markup("<span foreground='#00d9ff' font='Courier New Bold 18'>ClipmonWSL</span>")
+        title_label.get_style_context().add_class('title-label')
+        header_box.pack_start(title_label, False, False, 0)
+        
+        # Subtitle
+        subtitle_label = Gtk.Label()
+        subtitle_label.set_markup("<span foreground='#7b68ee' font='Courier New 10'>Control Panel</span>")
+        subtitle_label.get_style_context().add_class('subtitle-label')
+        header_box.pack_start(subtitle_label, False, False, 0)
+        
+        vbox.pack_start(header_box, False, False, 0)
+        
+        # Separator
+        vbox.pack_start(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL), False, False, 0)
+        
+        # Project selection
+        project_frame = Gtk.Frame(label="Active Project")
+        project_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        project_box.set_margin_start(10)
+        project_box.set_margin_end(10)
+        project_box.set_margin_top(10)
+        project_box.set_margin_bottom(10)
+        
+        self.project_combo = Gtk.ComboBoxText()
+        self.scan_projects()
+        self.project_combo.connect("changed", self.on_project_changed)
+        project_box.pack_start(self.project_combo, True, True, 0)
+        
+        project_frame.add(project_box)
+        vbox.pack_start(project_frame, False, False, 0)
+        
+        # Status section
+        status_frame = Gtk.Frame(label="Monitor Status")
+        status_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        status_box.set_margin_start(10)
+        status_box.set_margin_end(10)
+        status_box.set_margin_top(10)
+        status_box.set_margin_bottom(10)
+        
+        self.status_label = Gtk.Label(label="Checking...")
+        self.status_label.set_halign(Gtk.Align.START)
+        status_box.pack_start(self.status_label, True, True, 0)
+        
+        self.toggle_button = Gtk.Button(label="Start")
+        self.toggle_button.connect("clicked", self.toggle_monitor)
+        status_box.pack_end(self.toggle_button, False, False, 0)
+        
+        status_frame.add(status_box)
+        vbox.pack_start(status_frame, False, False, 0)
+        
+        # Controls section
+        controls_frame = Gtk.Frame(label="Quick Actions")
+        controls_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
+        controls_box.set_margin_start(10)
+        controls_box.set_margin_end(10)
+        controls_box.set_margin_top(10)
+        controls_box.set_margin_bottom(10)
+        
+        # View captures button
+        btn_view = Gtk.Button(label="View All Captures")
+        btn_view.connect("clicked", self.view_captures)
+        controls_box.pack_start(btn_view, False, False, 0)
+        
+        # Open folder button
+        btn_folder = Gtk.Button(label="Open Captures Folder")
+        btn_folder.connect("clicked", self.open_folder)
+        controls_box.pack_start(btn_folder, False, False, 0)
+        
+        # Clean captures button
+        btn_clean = Gtk.Button(label="Clean Old Captures")
+        btn_clean.connect("clicked", self.clean_captures)
+        controls_box.pack_start(btn_clean, False, False, 0)
+        
+        controls_frame.add(controls_box)
+        vbox.pack_start(controls_frame, False, False, 0)
+        
+        # Recent captures section
+        recent_frame = Gtk.Frame(label="Recent Captures")
+        
+        # Create scrolled window for list
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scrolled.set_min_content_height(150)
+        
+        # Create list box for captures
+        self.captures_list = Gtk.ListBox()
+        self.captures_list.set_selection_mode(Gtk.SelectionMode.SINGLE)
+        self.captures_list.connect("row-activated", self.on_capture_activated)
+        
+        scrolled.add(self.captures_list)
+        recent_frame.add(scrolled)
+        vbox.pack_start(recent_frame, True, True, 0)
+        
+        # Stats section
+        self.stats_label = Gtk.Label()
+        self.stats_label.set_halign(Gtk.Align.START)
+        vbox.pack_start(self.stats_label, False, False, 0)
+        
+        # Separator before footer
+        vbox.pack_end(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL), False, False, 0)
+        
+        # BuildAppolis branding footer
+        footer_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        
+        branding_label = Gtk.Label()
+        branding_label.set_markup("<span foreground='#5c5c8a' font='Courier New 8'>by BuildAppolis</span>")
+        footer_box.pack_start(branding_label, False, False, 0)
+        
+        website_label = Gtk.Label()
+        website_label.set_markup("<span foreground='#5c5c8a' font='Courier New 8'>www.buildappolis.com</span>")
+        footer_box.pack_start(website_label, False, False, 0)
+        
+        vbox.pack_end(footer_box, False, False, 5)
+        
+        # Add everything to window
+        self.window.add(vbox)
+        
+        # Initial updates
+        self.update_status()
+        # Delay initial capture list update to avoid race condition
+        GLib.timeout_add(100, self.update_captures_list)
+        
+        # Smart project selection
+        model = self.project_combo.get_model()
+        if model:
+            num_projects = len(model)
+            
+            if num_projects == 1:
+                # If only one project, select it automatically
+                self.project_combo.set_active(0)
+            else:
+                # Try to select current project
+                try:
+                    current_proj = self.base_dir.parent.parent.name
+                    
+                    # Find and select the current project
+                    for i in range(num_projects):
+                        if model[i][0] == current_proj:
+                            self.project_combo.set_active(i)
+                            break
+                    else:
+                        # If current project not found but there are projects, select first
+                        if num_projects > 0:
+                            self.project_combo.set_active(0)
+                except:
+                    # Fallback to first project if available
+                    if num_projects > 0:
+                        self.project_combo.set_active(0)
+    
+    def update_captures_list(self):
+        """Update the recent captures list"""
+        # Prevent concurrent updates
+        if hasattr(self, '_updating_list') and self._updating_list:
+            return
+        self._updating_list = True
+        
+        try:
+            # Clear existing items
+            for child in self.captures_list.get_children():
+                self.captures_list.remove(child)
+            
+            # Get recent captures
+            captures = self.get_recent_captures(10)
+            
+            if captures:
+                for capture in captures:
+                    # Create row
+                    row = Gtk.ListBoxRow()
+                    hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+                    
+                    # Type label
+                    if 'gif' in capture['type'].lower():
+                        icon = Gtk.Label(label="[GIF]")
+                    else:
+                        icon = Gtk.Label(label="[IMG]")
+                    hbox.pack_start(icon, False, False, 0)
+                    
+                    # Info
+                    info = Gtk.Label(label=f"#{capture['id']} - {capture['time']}")
+                    info.set_halign(Gtk.Align.START)
+                    hbox.pack_start(info, True, True, 0)
+                    
+                    # Store capture data
+                    row.capture_data = capture
+                    row.add(hbox)
+                    row.show_all()
+                    self.captures_list.add(row)
+            else:
+                row = Gtk.ListBoxRow()
+                label = Gtk.Label(label="No captures yet")
+                label.set_sensitive(False)
+                row.add(label)
+                row.set_selectable(False)
+                row.show_all()
+                self.captures_list.add(row)
+            
+            # Update stats
+            total = self.get_capture_count()
+            self.stats_label.set_text(f"Total captures: {total}")
+        finally:
+            self._updating_list = False
+    
+    def on_capture_activated(self, listbox, row):
+        """Handle capture row activation"""
+        if hasattr(row, 'capture_data'):
+            capture = row.capture_data
+            # Copy path to clipboard
+            try:
+                subprocess.run(['xclip', '-selection', 'clipboard'], 
+                             input=capture['path'].encode(), check=True)
+                self.notify(f"Copied path for {capture['type']} #{capture['id']}")
+            except:
+                self.notify("Failed to copy path", is_error=True)
+    
+    def scan_projects(self):
+        """Scan for available projects"""
+        projects_dir = Path.home() / "coding"
+        if projects_dir.exists():
+            # Only add projects that have a references.json file (meaning clipmon was used there)
+            for project in projects_dir.iterdir():
+                refs_json = project / ".claude" / "captures" / "references.json"
+                if project.is_dir() and refs_json.exists():
+                    # Check if references.json has content (not empty)
+                    try:
+                        with open(refs_json, 'r') as f:
+                            data = json.load(f)
+                            # Only add if it has captures
+                            if data.get('numbered') and len(data['numbered']) > 0:
+                                self.project_combo.append_text(project.name)
+                    except:
+                        pass
+    
+    def on_project_changed(self, combo):
+        """Handle project change"""
+        project = combo.get_active_text()
+        if project:
+            new_base = Path.home() / "coding" / project / ".claude" / "captures"
+            
+            if new_base.exists():
+                self.base_dir = new_base
+                self.refs_file = self.base_dir / "references.txt"
+                self.refs_json = self.base_dir / "references.json"
+                self.update_status()
+                self.update_captures_list()
+                self.notify(f"Switched to project: {project}")
+    
+    def get_recent_captures(self, limit=10):
+        """Get recent captures from references file"""
+        captures = []
+        
+        # Try JSON format first
+        if self.refs_json.exists():
+            try:
+                with open(self.refs_json, 'r') as f:
+                    data = json.load(f)
+                    if 'numbered' in data:
+                        # Get numbered entries sorted by key (newest first)
+                        numbered = data['numbered']
+                        sorted_keys = sorted(numbered.keys(), key=int, reverse=True)[:limit]
+                        
+                        for key in sorted_keys:
+                            entry = numbered[key]
+                            captures.append({
+                                'id': key,
+                                'type': 'GIF' if entry['name'].endswith('.gif') else 'Image',
+                                'time': entry.get('time', 'Unknown'),
+                                'path': entry['path']
+                            })
+            except:
+                pass
+        
+        # Fall back to text format if no JSON or if it failed
+        if not captures and self.refs_file.exists():
+            try:
+                with open(self.refs_file, 'r') as f:
+                    lines = f.readlines()[-limit:]
+                    for line in reversed(lines):
+                        if '|' in line:
+                            parts = line.strip().split('|')
+                            if len(parts) >= 3:
+                                # Parse timestamp
+                                timestamp = datetime.fromtimestamp(float(parts[0]))
+                                time_str = timestamp.strftime("%H:%M:%S")
+                                
+                                captures.append({
+                                    'id': parts[2].strip(),
+                                    'type': 'Image' if 'image' in parts[1] else 'GIF',
+                                    'time': time_str,
+                                    'path': parts[1].strip()
+                                })
+            except:
+                pass
+        
+        return captures
+    
+    def is_monitor_running(self):
+        """Check if monitor is running"""
+        if self.pid_file.exists():
+            try:
+                pid = int(self.pid_file.read_text().strip())
+                # Check if process exists
+                os.kill(pid, 0)
+                return True
+            except (ProcessLookupError, ValueError):
+                # PID file exists but process doesn't
+                self.pid_file.unlink(missing_ok=True)
+        return False
+    
+    def update_status(self):
+        """Update status display"""
+        is_running = self.is_monitor_running()
+        
+        if is_running:
+            self.status_label.set_markup("<span color='#00d9ff' weight='bold' font='Courier New 12'>● RUNNING</span>")
+            self.toggle_button.set_label("Stop Monitor")
+            self.window.set_title("ClipmonWSL [Active]")
+        else:
+            self.status_label.set_markup("<span color='#9d4edd' weight='bold' font='Courier New 12'>● STOPPED</span>")
+            self.toggle_button.set_label("Start Monitor")
+            self.window.set_title("ClipmonWSL [Inactive]")
+    
+    def start_combined_watcher(self):
+        """Single watcher for everything to prevent conflicts"""
+        self._check_counter = 0
+        
+        def check_everything():
+            try:
+                self._check_counter += 1
+                
+                # Update status every 2 checks (6 seconds)
+                if self._check_counter % 2 == 0:
+                    self.update_status()
+                
+                # Check for changes in captures (both additions and deletions)
+                current_count = self.get_capture_count()
+                
+                # Also check if files referenced in json still exist
+                if self.refs_json.exists():
+                    self.clean_missing_references()
+                
+                # Update if count changed
+                if current_count != self.last_capture_count:
+                    if current_count > self.last_capture_count:
+                        diff = current_count - self.last_capture_count
+                        self.notify(f"New capture #{current_count}")
+                    elif current_count < self.last_capture_count:
+                        # Files were deleted
+                        diff = self.last_capture_count - current_count
+                        self.notify(f"Removed {diff} capture(s)")
+                    
+                    self.last_capture_count = current_count
+                    # Update the list
+                    self.update_captures_list()
+                    
+            except Exception as e:
+                print(f"Error in watcher: {e}")
+            return True
+        
+        # Check every 3 seconds
+        GLib.timeout_add_seconds(3, check_everything)
+    
+    def clean_missing_references(self):
+        """Remove references to files that no longer exist"""
+        try:
+            if not self.refs_json.exists():
+                return
+                
+            with open(self.refs_json, 'r') as f:
+                data = json.load(f)
+            
+            if 'numbered' not in data:
+                return
+            
+            # Check each referenced file
+            updated = False
+            to_remove = []
+            
+            for key, entry in data['numbered'].items():
+                if 'path' in entry:
+                    if not Path(entry['path']).exists():
+                        to_remove.append(key)
+                        updated = True
+            
+            # Remove missing entries
+            if updated:
+                for key in to_remove:
+                    del data['numbered'][key]
+                
+                # Renumber remaining entries
+                new_numbered = {}
+                for i, (old_key, entry) in enumerate(sorted(data['numbered'].items(), key=lambda x: int(x[0])), 1):
+                    new_numbered[str(i)] = entry
+                
+                data['numbered'] = new_numbered
+                data['updated'] = datetime.now().isoformat()
+                
+                # Save updated references
+                with open(self.refs_json, 'w') as f:
+                    json.dump(data, f, indent=2)
+        except Exception as e:
+            print(f"Error cleaning references: {e}")
+    
+    def start_capture_watcher_OLD(self):
+        """Watch for new captures and notify"""
+        def check_captures():
+            try:
+                current_count = self.get_capture_count()
+                if current_count > self.last_capture_count:
+                    diff = current_count - self.last_capture_count
+                    
+                    # Get the latest capture path and copy to clipboard
+                    latest_capture = self.get_latest_capture()
+                    if latest_capture:
+                        try:
+                            # Copy path to clipboard using xclip
+                            subprocess.run(['xclip', '-selection', 'clipboard'], 
+                                         input=latest_capture['path'].encode(), check=True)
+                            
+                            if diff == 1:
+                                self.notify(f"New capture #{current_count} - Path copied to clipboard")
+                            else:
+                                self.notify(f"{diff} new captures (#{self.last_capture_count+1}-{current_count}) - Latest path copied")
+                        except:
+                            if diff == 1:
+                                self.notify(f"New clipboard capture #{current_count}")
+                            else:
+                                self.notify(f"{diff} new captures (#{self.last_capture_count+1}-{current_count})")
+                    else:
+                        if diff == 1:
+                            self.notify(f"New clipboard capture #{current_count}")
+                        else:
+                            self.notify(f"{diff} new captures (#{self.last_capture_count+1}-{current_count})")
+                    
+                    self.last_capture_count = current_count
+                    # Update the list only once
+                    GLib.idle_add(self.update_captures_list)
+            except Exception as e:
+                print(f"Error in capture watcher: {e}")
+            return True
+        
+        # DISABLED - using combined watcher instead
+        pass
+    
+    def get_latest_capture(self):
+        """Get the most recent capture from references file"""
+        # Try JSON format first
+        if self.refs_json.exists():
+            try:
+                with open(self.refs_json, 'r') as f:
+                    data = json.load(f)
+                    if 'latest' in data and 'numbered' in data:
+                        # Find the entry with the highest number (most recent)
+                        numbered = data['numbered']
+                        if numbered:
+                            latest_key = max(numbered.keys(), key=int)
+                            entry = numbered[latest_key]
+                            return {
+                                'id': latest_key,
+                                'path': entry['path'],
+                                'type': 'GIF' if entry['name'].endswith('.gif') else 'Image',
+                                'time': entry.get('time', 'Unknown')
+                            }
+            except:
+                pass
+        
+        # Fall back to text format
+        if self.refs_file.exists():
+            try:
+                with open(self.refs_file, 'r') as f:
+                    lines = f.readlines()
+                    if lines:
+                        # Get the last line
+                        last_line = lines[-1].strip()
+                        if '|' in last_line:
+                            parts = last_line.split('|')
+                            if len(parts) >= 3:
+                                # Return capture info
+                                timestamp = datetime.fromtimestamp(float(parts[0]))
+                                return {
+                                    'id': parts[2].strip(),
+                                    'path': parts[1].strip(),
+                                    'type': 'Image' if 'image' in parts[1] else 'GIF',
+                                    'time': timestamp.strftime("%H:%M:%S")
+                                }
+            except:
+                pass
+        return None
+    
+    def get_capture_count(self):
+        """Get current number of captures"""
+        # Try JSON format first
+        if self.refs_json.exists():
+            try:
+                with open(self.refs_json, 'r') as f:
+                    data = json.load(f)
+                    if 'numbered' in data:
+                        return len(data['numbered'])
+            except:
+                pass
+        
+        # Fall back to text format
+        if self.refs_file.exists():
+            try:
+                with open(self.refs_file, 'r') as f:
+                    return len(f.readlines())
+            except:
+                pass
+        return 0
+    
+    def toggle_monitor(self, widget):
+        """Toggle monitor on/off"""
+        if self.is_monitor_running():
+            self.stop_monitor()
+        else:
+            self.start_monitor()
+    
+    def start_monitor(self):
+        """Start the clipboard monitor"""
+        try:
+            result = subprocess.run(
+                ['bash', str(Path.home() / '.claude' / 'tools' / 'clipmon-bg'), 'start'],
+                capture_output=True, text=True
+            )
+            if result.returncode == 0:
+                self.notify("Clipboard monitor started")
+                GLib.timeout_add(1000, self.update_status)  # Update after 1 second
+            else:
+                self.notify("Failed to start monitor", is_error=True)
+        except Exception as e:
+            self.notify(f"Error: {e}", is_error=True)
+    
+    def stop_monitor(self):
+        """Stop the clipboard monitor"""
+        try:
+            result = subprocess.run(
+                ['bash', str(Path.home() / '.claude' / 'tools' / 'clipmon-bg'), 'stop'],
+                capture_output=True, text=True
+            )
+            if result.returncode == 0:
+                self.notify("Clipboard monitor stopped")
+                self.update_status()
+            else:
+                self.notify("Failed to stop monitor", is_error=True)
+        except Exception as e:
+            self.notify(f"Error: {e}", is_error=True)
+    
+    def view_captures(self, widget):
+        """View captures in viewer GUI"""
+        # Launch the viewer GUI instead of terminal
+        try:
+            subprocess.Popen(['/home/cory-ubuntu/.claude/tools/clipmon', 'viewer'])
+            self.notify("Opened captures viewer")
+        except Exception as e:
+            self.notify(f"Error opening viewer: {e}", is_error=True)
+    
+    def open_folder(self, widget):
+        """Open captures folder in file manager"""
+        # For WSL, use Windows Explorer
+        win_path = subprocess.run(
+            ['wslpath', '-w', str(self.base_dir)],
+            capture_output=True, text=True
+        ).stdout.strip()
+        subprocess.Popen(['explorer.exe', win_path])
+    
+    def clean_captures(self, widget):
+        """Clean captures for current project"""
+        # Get current capture count
+        capture_count = self.get_capture_count()
+        
+        if capture_count == 0:
+            self.notify("No captures to delete")
+            return
+        
+        # Get current project name
+        current_project = self.project_combo.get_active_text() or "current project"
+        
+        # Confirm deletion
+        dialog = Gtk.MessageDialog(
+            transient_for=self.window,
+            flags=0,
+            message_type=Gtk.MessageType.WARNING,
+            buttons=Gtk.ButtonsType.YES_NO,
+            text=f"Delete all captures for {current_project}?",
+        )
+        dialog.format_secondary_text(
+            f"This will permanently delete {capture_count} capture(s) from:\n{self.base_dir}\n\nThis action cannot be undone."
+        )
+        
+        # Apply dark theme to dialog
+        context = dialog.get_style_context()
+        css_provider = Gtk.CssProvider()
+        css = b"""
+        messagedialog {
+            background-color: #1a1a2e;
+            color: #e8e8f0;
+        }
+        messagedialog .dialog-vbox {
+            background-color: #1a1a2e;
+        }
+        messagedialog .dialog-action-area {
+            background-color: #16213e;
+        }
+        messagedialog label {
+            color: #e8e8f0;
+        }
+        messagedialog button {
+            background: #2d2d44;
+            color: #e8e8f0;
+            border: 2px solid #7b68ee;
+        }
+        messagedialog button:hover {
+            background: #7b68ee;
+        }
+        """
+        css_provider.load_from_data(css)
+        context.add_provider(css_provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        
+        response = dialog.run()
+        dialog.destroy()
+        
+        if response == Gtk.ResponseType.YES:
+            try:
+                # Delete all image files
+                deleted_count = 0
+                for img_file in self.base_dir.glob("img_*"):
+                    try:
+                        img_file.unlink()
+                        deleted_count += 1
+                    except:
+                        pass
+                
+                # Before clearing, add current clipboard to blacklist
+                try:
+                    # Get current clipboard image hash if any
+                    result = subprocess.run(
+                        ['xclip', '-selection', 'clipboard', '-t', 'image/png', '-o'],
+                        capture_output=True
+                    )
+                    if result.returncode == 0 and result.stdout:
+                        import hashlib
+                        image_hash = hashlib.sha256(result.stdout).hexdigest()
+                        
+                        # Add to blacklist
+                        blacklist_file = self.base_dir / '.blacklist.json'
+                        blacklist = {'hashes': []}
+                        
+                        if blacklist_file.exists():
+                            try:
+                                with open(blacklist_file, 'r') as f:
+                                    data = json.load(f)
+                                    blacklist['hashes'] = data.get('hashes', [])
+                            except:
+                                pass
+                        
+                        if image_hash not in blacklist['hashes']:
+                            blacklist['hashes'].append(image_hash)
+                            # Keep last 100 hashes
+                            blacklist['hashes'] = blacklist['hashes'][-100:]
+                            
+                            with open(blacklist_file, 'w') as f:
+                                json.dump(blacklist, f)
+                except:
+                    pass
+                
+                # Clear references.json
+                refs_json = {
+                    "latest": "",
+                    "numbered": {},
+                    "updated": datetime.now().isoformat()
+                }
+                with open(self.refs_json, 'w') as f:
+                    json.dump(refs_json, f, indent=2)
+                
+                # Clear references.txt if it exists
+                if self.refs_file.exists():
+                    self.refs_file.write_text("")
+                
+                self.notify(f"Deleted {deleted_count} captures from {current_project}")
+                self.update_captures_list()
+                
+            except Exception as e:
+                self.notify(f"Error cleaning captures: {e}", is_error=True)
+    
+    def notify(self, message, is_error=False):
+        """Show status message in the UI"""
+        # Update the status label with the message
+        self.last_message = message
+        if hasattr(self, 'stats_label'):
+            color = '#ff6b6b' if is_error else '#00d9ff'
+            self.stats_label.set_markup(f"<span foreground='{color}' font='Courier New 10'>{message}</span>")
+            # Clear message after 3 seconds
+            GLib.timeout_add_seconds(3, self.clear_status_message)
+    
+    def clear_status_message(self):
+        """Clear the status message and show capture count"""
+        if hasattr(self, 'stats_label'):
+            total = self.get_capture_count()
+            self.stats_label.set_text(f"Total captures: {total}")
+        return False  # Don't repeat
+    
+    def quit(self, widget):
+        """Quit the application"""
+        # Ask if should stop monitor
+        if self.is_monitor_running():
+            dialog = Gtk.MessageDialog(
+                transient_for=self.window,
+                flags=0,
+                message_type=Gtk.MessageType.QUESTION,
+                buttons=Gtk.ButtonsType.YES_NO,
+                text="Stop Monitor?",
+            )
+            dialog.format_secondary_text(
+                "The clipboard monitor is still running. Stop it before quitting?"
+            )
+            
+            # Apply dark theme to dialog
+            context = dialog.get_style_context()
+            css_provider = Gtk.CssProvider()
+            css = b"""
+            messagedialog {
+                background-color: #1a1a2e;
+                color: #e8e8f0;
+            }
+            messagedialog .dialog-vbox {
+                background-color: #1a1a2e;
+            }
+            messagedialog .dialog-action-area {
+                background-color: #16213e;
+            }
+            messagedialog label {
+                color: #e8e8f0;
+            }
+            messagedialog button {
+                background: #2d2d44;
+                color: #e8e8f0;
+                border: 2px solid #7b68ee;
+            }
+            messagedialog button:hover {
+                background: #7b68ee;
+            }
+            """
+            css_provider.load_from_data(css)
+            context.add_provider(css_provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+            
+            response = dialog.run()
+            dialog.destroy()
+            
+            if response == Gtk.ResponseType.YES:
+                self.stop_monitor()
+        
+        Gtk.main_quit()
+
+def main():
+    # Handle signals
+    signal.signal(signal.SIGINT, signal.SIG_DFL)
+    
+    # Create and run application
+    app = ClipmonGUI()
+    Gtk.main()
+
+if __name__ == "__main__":
+    main()
